@@ -1,0 +1,1 @@
+<a-model format="obj" scale="10 10 10" position="-2.6 0 -20.26" rotation="0 0 0" src="AircraftFuselageWhite.obj" material="color: #fff; metalness: 1.0; roughness: 0.1; reflectivity: 0.0" color="#000"></a-model>
