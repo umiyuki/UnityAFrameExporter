@@ -115,9 +115,16 @@ public class AFrameExporter : ScriptableObject {
             ret_str += add_str;
         }
 
+        GameObject[] allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
+        int objects_num = allObjects.Length;
+        int process_num = 0;
         //オブジェクト全検索
-        foreach (GameObject obj in Resources.FindObjectsOfTypeAll<GameObject>())
+        foreach (GameObject obj in allObjects)
         {
+            process_num++;
+            //プログレスバー表示
+            EditorUtility.DisplayProgressBar("Progress", "Now Processing...   " + process_num + "/" + objects_num, (float)process_num / (float)objects_num);
+
             // ProjectにあるものならAsset Path, SceneにあるオブジェクトはそのシーンのPathが返ってくる
             string path = AssetDatabase.GetAssetOrScenePath(obj);
 
@@ -131,9 +138,14 @@ public class AFrameExporter : ScriptableObject {
             // シーン内のオブジェクトかどうか判定
             if (isExistInScene)
             {
+                //非表示オブジェクトならスキップ
+                if (!obj.activeInHierarchy)
+                { continue; }
+
                 MeshFilter meshFilter = obj.GetComponent<MeshFilter>();
                 Light light = obj.GetComponent<Light>();
                 SpriteRenderer spriteRenderer = obj.GetComponent<SpriteRenderer>();
+                SkinnedMeshRenderer skinnedMeshRenderer = obj.GetComponent<SkinnedMeshRenderer>();
                 //メッシュフィルターコンポーネントを持ってるなら
                 if (meshFilter && meshFilter.sharedMesh)
                 {
@@ -179,7 +191,6 @@ public class AFrameExporter : ScriptableObject {
                         string append_str = indent + "<a-entity geometry=\"primitive: plane; width:" + width + "; height:" + height + "\" " + outputRotation(eulerAngles) + outputPosition(obj) + outputMaterial(obj) + "></a-entity>\n";
                         ret_str += append_str;
                     }
-                    //TODO:Modelの場合
                     //TODO:videoの場合
                     //TODO:curvedimageの場合
                     //TODO:videosphereの場合
@@ -187,8 +198,44 @@ public class AFrameExporter : ScriptableObject {
                     //TODO:Ringの場合
                     //TODO:Torusの場合
                     //TODO:Torus Knotの場合
+                    //Modelの場合
+                    else
+                    {
+                        string new_path = export_path + "/models/" + meshFilter.sharedMesh.name + ".obj";
+                        //obj無ければ作成
+                        if (!File.Exists(Application.dataPath + "/AFrameExporter/export/models/" + meshFilter.sharedMesh.name + ".obj"))
+                        {
+                            ObjExporter.MeshToFile(meshFilter, new_path, true);
+                            AssetDatabase.ImportAsset(new_path);
+                            var importer = (ModelImporter)ModelImporter.GetAtPath(new_path);
+                            importer.animationType = ModelImporterAnimationType.None;
+                            AssetDatabase.Refresh();
+                        }
+
+                        //マテリアルからテクスチャを取り出す
+                        string append_str = indent + "<a-entity loader=\"src: url(models/" + meshFilter.sharedMesh.name + ".obj); format: obj\" " + outputScale(obj) + outputRotation(obj) + outputPosition(obj) + outputMaterial(obj) + "></a-entity>\n";
+                        ret_str += append_str;
+                    }
                 }
-                //TODO:imageの場合 UnityはQuad シングルスプライトのみ対応
+                //skinnedMeshModelの場合
+                else if (skinnedMeshRenderer && skinnedMeshRenderer.sharedMesh)
+                {
+                    string new_path = export_path + "/models/" + skinnedMeshRenderer.sharedMesh.name + ".obj";
+                    //obj無ければ作成
+                    if (!File.Exists(Application.dataPath + "/AFrameExporter/export/models/" + skinnedMeshRenderer.sharedMesh.name + ".obj"))
+                    {
+                        ObjExporter.SkinnedMeshToFile(skinnedMeshRenderer, new_path, true);
+                        AssetDatabase.ImportAsset(new_path);
+                        var importer = (ModelImporter)ModelImporter.GetAtPath(new_path);
+                        importer.animationType = ModelImporterAnimationType.None;
+                        AssetDatabase.Refresh();
+                    }
+
+                    //マテリアルからテクスチャを取り出す
+                    string append_str = indent + "<a-entity loader=\"src: url(models/" + skinnedMeshRenderer.sharedMesh.name + ".obj); format: obj\" " + outputScale(obj) + outputRotation(obj) + outputPosition(obj) + outputMaterial(obj) + "></a-entity>\n";
+                    ret_str += append_str;
+                }
+                //imageの場合 UnityはQuad シングルスプライトのみ対応
                 else if (spriteRenderer && spriteRenderer.sprite && spriteRenderer.sprite.pixelsPerUnit != 0)
                 {
                     Sprite sprite = spriteRenderer.sprite;
@@ -203,9 +250,10 @@ public class AFrameExporter : ScriptableObject {
                         string texture_path = AssetDatabase.GetAssetPath(tex);
                         string new_path = export_path + "/images/" + Path.GetFileName(texture_path);
                         //テクスチャ無ければコピー
-                        if (AssetDatabase.AssetPathToGUID(new_path) == "")
+                        if (!File.Exists(Application.dataPath + "/AFrameExporter/export/images/" + Path.GetFileName(texture_path)))
                         {
                             AssetDatabase.CopyAsset(texture_path, new_path);
+                            AssetDatabase.Refresh();
                         }
 
                         tex_str = "src=\"images/" + Path.GetFileName(texture_path) + "\" ";
@@ -262,6 +310,8 @@ public class AFrameExporter : ScriptableObject {
         {
         }
 
+        EditorUtility.ClearProgressBar();
+
         return ret_str;
     }
 
@@ -293,6 +343,21 @@ public class AFrameExporter : ScriptableObject {
             return "";
         }
         return "rotation=\"" + eulerAngles.x + " " + -eulerAngles.y + " " + -eulerAngles.z + "\" ";
+    }
+
+    private string outputScale(GameObject obj)
+    {
+        Vector3 scale = obj.transform.lossyScale;
+        return outputScale(scale);
+    }
+
+    private string outputScale(Vector3 scale)
+    {
+        if (scale == Vector3.one)
+        {
+            return "";
+        }
+        return "scale=\"" + scale.x + " " + scale.y + " " + scale.z + "\" ";
     }
 
     private string outputMaterial(GameObject obj)
@@ -335,6 +400,12 @@ public class AFrameExporter : ScriptableObject {
             //透明度
             ret_str += "opacity: " + mat.color.a + "; ";
 
+            if (mat.color.a == 1f)
+            {
+                //描画面（両面）
+                ret_str += "side: double; ";
+            }
+
             //おしまい
             ret_str += "\"";
         }
@@ -344,6 +415,9 @@ public class AFrameExporter : ScriptableObject {
 
             //シェーダタイプ
             ret_str += "shader: flat; ";
+
+            //描画面（両面）
+            ret_str += "side: double; ";
 
             //おしまい
             ret_str += "\"";
@@ -360,6 +434,9 @@ public class AFrameExporter : ScriptableObject {
 
             //リピート(xを使う)
             ret_str += "repeat: " + mat.mainTextureScale.x + "; ";
+
+            //描画面（両面）
+            ret_str += "side: double; ";
 
             //おしまい
             ret_str += "\"";
@@ -379,6 +456,9 @@ public class AFrameExporter : ScriptableObject {
 
             //カラー
             ret_str += "color: #" + ColorToHex(mat.color) + "; ";
+
+            //描画面（両面）
+            ret_str += "side: double; ";
 
             //おしまい
             ret_str += "\"";
@@ -405,6 +485,12 @@ public class AFrameExporter : ScriptableObject {
             //透明度
             ret_str += "opacity: " + mat.color.a + "; ";
 
+            if (mat.color.a == 1f)
+            {
+                //描画面（両面）
+                ret_str += "side: double; ";
+            }
+
             //おしまい
             ret_str += "\"";
         }
@@ -422,8 +508,11 @@ public class AFrameExporter : ScriptableObject {
             //リピート(xを使う)
             ret_str += "repeat: " + mat.mainTextureScale.x + "; ";
 
-            //カラー
-            ret_str += "color: #" + ColorToHex(mat.color) + "; ";
+            if (mat.HasProperty("_Color"))
+            {
+                //カラー
+                ret_str += "color: #" + ColorToHex(mat.color) + "; ";
+            }
 
             //メタルネス
             //ret_str += "metalness: " + mat.GetFloat("_Metallic") + "; ";
@@ -436,6 +525,9 @@ public class AFrameExporter : ScriptableObject {
 
             //透明度
             //ret_str += "opacity: " + mat.color.a + "; ";
+
+            //描画面（両面）
+            ret_str += "side: double; ";
 
             //おしまい
             ret_str += "\"";
@@ -488,7 +580,8 @@ public class AFrameExporter : ScriptableObject {
         string guid_exist = AssetDatabase.AssetPathToGUID(export_path);
         if (guid_exist != "")
         {
-            Directory.Delete(Application.dataPath + "/AFrameExporter/export/", true);
+            //Directory.Delete(Application.dataPath + "/AFrameExporter/export/", true);
+            AssetDatabase.DeleteAsset(export_path);
             AssetDatabase.Refresh();
         }
     }
