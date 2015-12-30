@@ -38,7 +38,7 @@ public class AFrameExporter : ScriptableObject {
 
         //exportフォルダが無ければ作る
         string guid_exist = AssetDatabase.AssetPathToGUID(export_path);
-        if (!File.Exists(Application.dataPath + "/AframeExporter/export"))
+        if (!Directory.Exists(Application.dataPath + "/AframeExporter/export"))
         {
             AssetDatabase.CreateFolder("Assets/AFrameExporter", "export");
             AssetDatabase.Refresh();
@@ -46,7 +46,7 @@ public class AFrameExporter : ScriptableObject {
 
         //imagesフォルダ作る
         guid_exist = AssetDatabase.AssetPathToGUID(export_path + "/images");
-        if (!File.Exists(Application.dataPath + "/AframeExporter/export/images"))
+        if (!Directory.Exists(Application.dataPath + "/AframeExporter/export/images"))
         {
             AssetDatabase.CreateFolder(export_path, "images");
             AssetDatabase.Refresh();
@@ -54,7 +54,7 @@ public class AFrameExporter : ScriptableObject {
 
         //modelsフォルダ作る
         guid_exist = AssetDatabase.AssetPathToGUID(export_path + "/models");
-        if (!File.Exists(Application.dataPath + "/AframeExporter/models"))
+        if (!Directory.Exists(Application.dataPath + "/AframeExporter/export/models"))
         {
             AssetDatabase.CreateFolder(export_path, "models");
             AssetDatabase.Refresh();
@@ -133,6 +133,7 @@ public class AFrameExporter : ScriptableObject {
             {
                 MeshFilter meshFilter = obj.GetComponent<MeshFilter>();
                 Light light = obj.GetComponent<Light>();
+                SpriteRenderer spriteRenderer = obj.GetComponent<SpriteRenderer>();
                 //メッシュフィルターコンポーネントを持ってるなら
                 if (meshFilter && meshFilter.sharedMesh)
                 {
@@ -144,8 +145,8 @@ public class AFrameExporter : ScriptableObject {
                         string append_str = indent + "<a-entity geometry=\"primitive: box; width: " + scale.x + "; height: " + scale.y + "; depth: " + scale.z + "\" " + outputRotation(obj) + outputPosition(obj) + outputMaterial(obj) + "></a-entity>\n";
                         ret_str += append_str;
                     }
-                    //TODO:Sphereの場合
-                    if (meshFilter.sharedMesh.name == "Sphere")
+                    //Sphereの場合
+                    else if (meshFilter.sharedMesh.name == "Sphere")
                     {
                         //各軸scaleが使えないので各スケールの平均値をradiusとする
                         Vector3 scale = obj.transform.lossyScale;
@@ -157,9 +158,61 @@ public class AFrameExporter : ScriptableObject {
                         string append_str = indent + "<a-entity geometry=\"primitive: sphere; radius: " + radius + "\" " + outputRotation(obj) + outputPosition(obj) + outputMaterial(obj) + "></a-entity>\n";
                         ret_str += append_str;
                     }
-                    //TODO:Cylinderの場合
-                    //TODO:Planeの場合
+                    //Cylinderの場合(Unityのスケール1,1,1のシリンダーは半径0.5で高さ２)  TODO:パックマンみたいに欠けたシリンダー対応 独自コンポーネントくっつけて対応予定
+                    else if (meshFilter.sharedMesh.name == "Cylinder")
+                    {
+                        //例によってスケールのxとzの平均を半径、yを高さとする
+                        Vector3 scale = obj.transform.lossyScale;
+                        float radius = 0.5f;
+                        radius = (scale.x + scale.z) * 0.5f * 0.5f;
+                        float height = scale.y * 2f;
+                        string append_str = indent + "<a-entity geometry=\"primitive: cylinder; radius: " + radius + "\" height:" + height + "; " + outputRotation(obj) + outputPosition(obj) + outputMaterial(obj) + "></a-entity>\n";
+                        ret_str += append_str;
+                    }
+                    //Planeの場合(Unityのスケール1,1,1のプレーンは幅10高さ10）x90回転でa-frameと揃う
+                    else if (meshFilter.sharedMesh.name == "Plane")
+                    {
+                        Vector3 eulerAngles = obj.transform.eulerAngles;
+                        eulerAngles.x -= 90f;
+                        float width = obj.transform.lossyScale.x * 10f;
+                        float height = obj.transform.lossyScale.z * 10f;
+                        string append_str = indent + "<a-entity geometry=\"primitive: plane; width:" + width + "; height:" + height + "\" " + outputRotation(eulerAngles) + outputPosition(obj) + outputMaterial(obj) + "></a-entity>\n";
+                        ret_str += append_str;
+                    }
                     //TODO:Modelの場合
+                    //TODO:videoの場合
+                    //TODO:curvedimageの場合
+                    //TODO:videosphereの場合
+                    //TODO:Coneの場合
+                    //TODO:Ringの場合
+                    //TODO:Torusの場合
+                    //TODO:Torus Knotの場合
+                }
+                //TODO:imageの場合 UnityはQuad シングルスプライトのみ対応
+                else if (spriteRenderer && spriteRenderer.sprite && spriteRenderer.sprite.pixelsPerUnit != 0)
+                {
+                    Sprite sprite = spriteRenderer.sprite;
+                    float width = sprite.rect.width / sprite.pixelsPerUnit * obj.transform.lossyScale.x;
+                    float height = sprite.rect.height / sprite.pixelsPerUnit * obj.transform.lossyScale.y;
+
+                    //テクスチャ
+                    Texture tex = sprite.texture;
+                    string tex_str = "";
+                    if (tex)
+                    {
+                        string texture_path = AssetDatabase.GetAssetPath(tex);
+                        string new_path = export_path + "/images/" + Path.GetFileName(texture_path);
+                        //テクスチャ無ければコピー
+                        if (AssetDatabase.AssetPathToGUID(new_path) == "")
+                        {
+                            AssetDatabase.CopyAsset(texture_path, new_path);
+                        }
+
+                        tex_str = "src=\"images/" + Path.GetFileName(texture_path) + "\" ";
+                    }
+
+                    string append_str = indent + "<a-image " + tex_str + "width=\"" + -width + "\" height=\"" + height + "\" " + outputRotation(obj) + outputPosition(obj) + "></a-image>\n";
+                    ret_str += append_str;
                 }
                 //MainCameraの場合
                 else if (!isThereCamera && obj.tag == "MainCamera")
@@ -183,7 +236,7 @@ public class AFrameExporter : ScriptableObject {
                     {
                         Vector3 forward = -obj.transform.forward;
                         string lightPosition_str = "position=\"" + -forward.x + " " + forward.y + " " + forward.z + "\" ";
-                        string append_str = indent + "<a-light type=directional; intensity=" + light.intensity + " color=#" + ColorToHex(light.color) + " "  + lightPosition_str + "></a-light>\n";
+                        string append_str = indent + "<a-light type=directional; intensity=" + light.intensity + " color=#" + ColorToHex(light.color) + " " + lightPosition_str + "></a-light>\n";
                         ret_str += append_str;
                         isThereLight = true;
                     }
@@ -230,11 +283,16 @@ public class AFrameExporter : ScriptableObject {
     private string outputRotation(GameObject obj)
     {
         Vector3 rotation = obj.transform.rotation.eulerAngles;
-        if (rotation == Vector3.zero)
+        return outputRotation(rotation);
+    }
+
+    private string outputRotation(Vector3 eulerAngles)
+    {
+        if (eulerAngles == Vector3.zero)
         {
             return "";
         }
-        return "rotation=\"" + rotation.x + " " + -rotation.y + " " + -rotation.z + "\" ";
+        return "rotation=\"" + eulerAngles.x + " " + -eulerAngles.y + " " + -eulerAngles.z + "\" ";
     }
 
     private string outputMaterial(GameObject obj)
@@ -269,7 +327,7 @@ public class AFrameExporter : ScriptableObject {
             ret_str += "metalness: " + mat.GetFloat("_Metallic") + "; ";
 
             //スムースネス（roughnessの逆)
-            ret_str += "roughness: " + (1f-mat.GetFloat("_Glossiness")) + "; ";
+            ret_str += "roughness: " + (1f - mat.GetFloat("_Glossiness")) + "; ";
 
             //透過有効(_Modeが３ならRendering Modeはtransparent)
             ret_str += "transparent: " + (mat.GetFloat("_Mode") == 3 ? "true" : "false") + "; ";
@@ -350,9 +408,43 @@ public class AFrameExporter : ScriptableObject {
             //おしまい
             ret_str += "\"";
         }
+        //他のシェーダでもなるべく対応
+        else
+        {
+            ret_str = "material=\"";
+
+            //シェーダタイプ
+            ret_str += "shader: standard; ";
+
+            //テクスチャ
+            ret_str += outputTexture(mat);
+
+            //リピート(xを使う)
+            ret_str += "repeat: " + mat.mainTextureScale.x + "; ";
+
+            //カラー
+            ret_str += "color: #" + ColorToHex(mat.color) + "; ";
+
+            //メタルネス
+            //ret_str += "metalness: " + mat.GetFloat("_Metallic") + "; ";
+
+            //スムースネス（roughnessの逆)
+            //ret_str += "roughness: " + (1f - mat.GetFloat("_Glossiness")) + "; ";
+
+            //透過有効(_Modeが３ならRendering Modeはtransparent)
+            //ret_str += "transparent: " + (mat.GetFloat("_Mode") == 3 ? "true" : "false") + "; ";
+
+            //透明度
+            //ret_str += "opacity: " + mat.color.a + "; ";
+
+            //おしまい
+            ret_str += "\"";
+        }
 
         return ret_str;
     }
+
+
 
     private string outputTexture(Material mat)
     {
@@ -397,6 +489,7 @@ public class AFrameExporter : ScriptableObject {
         if (guid_exist != "")
         {
             Directory.Delete(Application.dataPath + "/AFrameExporter/export/", true);
+            AssetDatabase.Refresh();
         }
     }
 }
